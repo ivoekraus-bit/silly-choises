@@ -1,0 +1,10 @@
+{
+    "display_name": "Reply Options",
+    "loading_order": 50,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "reply-options",
+    "version": "1.0.0"
+}

@@ -1,0 +1,120 @@
+#reply-options-panel {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 0 0 6px;
+    padding: 6px 8px;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 8px;
+    background: var(--SmartThemeBlurTintColor);
+    color: var(--SmartThemeBodyColor);
+    max-height: 32vh;
+}
+
+#reply-options-panel[hidden] {
+    display: none;
+}
+
+.reply-options-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 24px;
+}
+
+.reply-options-status {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.85em;
+    opacity: 0.85;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.reply-options-actions {
+    display: flex;
+    gap: 4px;
+    flex: 0 0 auto;
+}
+
+#reply-options-panel .reply-options-icon {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--SmartThemeBodyColor);
+    cursor: pointer;
+}
+
+#reply-options-panel .reply-options-icon:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+.reply-options-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    overflow: auto;
+    min-height: 0;
+}
+
+#reply-options-panel button.reply-options-item {
+    width: 100%;
+    margin: 0;
+    padding: 6px 8px;
+    font: inherit;
+    line-height: 1.35;
+    text-align: left;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--SmartThemeBodyColor);
+    background: color-mix(in srgb, var(--SmartThemeBlurTintColor) 70%, transparent);
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+#reply-options-panel button.reply-options-item:hover,
+#reply-options-panel button.reply-options-item:focus-visible {
+    border-color: var(--SmartThemeQuoteColor);
+}
+
+.reply-options-settings-note {
+    opacity: 0.8;
+    font-size: 0.9em;
+    margin: 4px 0 8px;
+}
+
+.reply-options-setting {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 8px 0;
+}
+
+.reply-options-setting-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.reply-options-setting-row input[type="range"] {
+    flex: 1;
+}
+
+#reply_options_instruction {
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 6em;
+    resize: vertical;
+}

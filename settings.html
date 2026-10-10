@@ -1,0 +1,35 @@
+<div id="reply_options_settings" class="extension_container">
+    <div class="inline-drawer">
+        <div class="inline-drawer-toggle inline-drawer-header">
+            <b data-i18n="Reply Options">Reply Options</b>
+            <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+        </div>
+        <div class="inline-drawer-content">
+            <div class="reply-options-settings-note" data-i18n="After each assistant reply, the current chat-completion model suggests user replies. Clicking one fills the message box and does not send.">
+                After each assistant reply, the current chat-completion model suggests user replies. Clicking one fills the message box and does not send.
+            </div>
+            <label class="checkbox_label" for="reply_options_enabled">
+                <input id="reply_options_enabled" type="checkbox" />
+                <span data-i18n="Enabled">Enabled</span>
+            </label>
+            <label class="reply-options-setting" for="reply_options_count">
+                <span data-i18n="Number of suggestions">Number of suggestions</span>
+                <span class="reply-options-setting-row">
+                    <input id="reply_options_count" type="range" min="4" max="8" step="1" />
+                    <output id="reply_options_count_value" for="reply_options_count">6</output>
+                </span>
+            </label>
+            <label class="reply-options-setting" for="reply_options_max_tokens">
+                <span data-i18n="Suggestion response tokens">Suggestion response tokens</span>
+                <input id="reply_options_max_tokens" type="number" min="32" max="4096" step="1" />
+            </label>
+            <label class="reply-options-setting" for="reply_options_instruction">
+                <span data-i18n="Instruction added after the cached prompt">Instruction added after the cached prompt</span>
+                <textarea id="reply_options_instruction" rows="5" spellcheck="false"></textarea>
+            </label>
+            <div class="reply-options-settings-note" data-i18n="The instruction supports the count, user, and char macros. It is appended after the last reply and is not inserted into older messages.">
+                The instruction supports the count, user, and char macros. It is appended after the last reply and is not inserted into older messages.
+            </div>
+        </div>
+    </div>
+</div>
