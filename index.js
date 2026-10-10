@@ -44,6 +44,8 @@ let booted = false;
 let renderedFor = '';
 let rerunAfterQuiet = false;
 let fetchWrapped = false;
+/** @type {null | { at: string, instruction: string, content: string, reasoning: string, parsed: string[], raw: string, source: string, temperature: unknown, reasoningEffort: unknown, maxTokens: unknown }} */
+let lastDebug = null;
 
 export function clampCount(value) {
     const number = Number(value);
@@ -499,6 +501,96 @@ async function postCompletion(body, signal) {
     return data;
 }
 
+function rawResponseText(data) {
+    try {
+        const json = JSON.stringify(data, (_key, value) => {
+            if (typeof value === 'string' && value.length > 8000 && /^(data:|iVBOR|\/9j\/)/.test(value)) {
+                return `[omitted media, ${value.length} characters]`;
+            }
+            return value;
+        }, 2);
+        return json.length > 200000 ? `${json.slice(0, 200000)}\n…[truncated]` : json;
+    } catch {
+        return String(data ?? '');
+    }
+}
+
+function rememberDebug(debug) {
+    lastDebug = { at: new Date().toISOString(), ...debug };
+    console.info(LOG, 'suggestion response', lastDebug);
+    const button = panelElement()?.querySelector('.reply-options-debug');
+    if (button) button.disabled = false;
+}
+
+function formatDebug(debug) {
+    const parsed = Array.isArray(debug.parsed) && debug.parsed.length
+        ? debug.parsed.map((item, index) => `${index + 1}. ${item}`).join('\n')
+        : '(none)';
+    return [
+        `Time: ${debug.at}`,
+        `Source: ${debug.source ?? ''}`,
+        `Temperature: ${debug.temperature ?? ''}`,
+        `Reasoning effort: ${debug.reasoningEffort ?? ''}`,
+        `Max tokens: ${debug.maxTokens ?? ''}`,
+        '',
+        '--- Instruction sent ---',
+        debug.instruction || '(empty)',
+        '',
+        '--- Extracted content ---',
+        debug.content || '(empty)',
+        '',
+        '--- Reasoning ---',
+        debug.reasoning || '(empty)',
+        '',
+        '--- Parsed suggestions ---',
+        parsed,
+        '',
+        '--- Raw response ---',
+        debug.raw || '(empty)',
+    ].join('\n');
+}
+
+async function showLastResponse() {
+    const text = lastDebug
+        ? formatDebug(lastDebug)
+        : 'No suggestion response yet. Generate a reply first.';
+    const box = document.createElement('textarea');
+    box.readOnly = true;
+    box.value = text;
+    box.style.cssText = 'width:100%;min-height:60vh;box-sizing:border-box;font:12px/1.4 ui-monospace,monospace;white-space:pre;';
+
+    const wrap = document.createElement('div');
+    const copy = document.createElement('button');
+    copy.type = 'button';
+    copy.className = 'menu_button';
+    copy.textContent = 'Copy';
+    copy.addEventListener('click', async () => {
+        try {
+            await navigator.clipboard.writeText(text);
+            copy.textContent = 'Copied';
+        } catch {
+            box.focus();
+            box.select();
+            copy.textContent = 'Select the text and copy it';
+        }
+    });
+    wrap.append(copy, box);
+
+    const ctx = context();
+    if (ctx.Popup && ctx.POPUP_TYPE) {
+        const popup = new ctx.Popup(wrap, ctx.POPUP_TYPE.TEXT, '', {
+            wide: true,
+            wider: true,
+            large: true,
+            allowVerticalScrolling: true,
+            okButton: 'Close',
+        });
+        await popup.show();
+        return;
+    }
+    window.prompt('Suggestion response', text);
+}
+
 function panelElement() {
     return document.getElementById('reply-options-panel');
 }
@@ -540,6 +632,16 @@ function ensurePanel() {
         void generateSuggestions({ force: true });
     });
 
+    const debug = document.createElement('button');
+    debug.type = 'button';
+    debug.className = 'reply-options-icon reply-options-debug';
+    debug.title = 'Show the raw suggestion response';
+    debug.setAttribute('aria-label', 'Show the raw suggestion response');
+    debug.innerHTML = '<i class="fa-solid fa-file-lines" aria-hidden="true"></i>';
+    debug.addEventListener('click', () => {
+        void showLastResponse();
+    });
+
     const dismiss = document.createElement('button');
     dismiss.type = 'button';
     dismiss.className = 'reply-options-icon';
@@ -556,7 +658,7 @@ function ensurePanel() {
     const list = document.createElement('div');
     list.className = 'reply-options-list';
 
-    actions.append(retry, dismiss);
+    actions.append(debug, retry, dismiss);
     header.append(status, actions);
     panel.append(header, list);
     sendForm.before(panel);
@@ -737,11 +839,23 @@ async function generateSuggestions({ force = false } = {}) {
         const data = await postCompletion(built.body, controller.signal);
         if (myId !== requestId || epoch !== uiEpoch || dismissed) return;
         const content = extractCompletionText(data);
+        const reasoning = extractReasoningText(data);
         let options = parseOptions(content, settings.count);
         if (options.length < 2) {
-            const fromReasoning = parseOptions(extractReasoningText(data), settings.count);
+            const fromReasoning = parseOptions(reasoning, settings.count);
             if (fromReasoning.length > options.length) options = fromReasoning;
         }
+        rememberDebug({
+            instruction,
+            content,
+            reasoning,
+            parsed: options,
+            raw: rawResponseText(data),
+            source: built.body.chat_completion_source,
+            temperature: built.body.temperature,
+            reasoningEffort: built.body.reasoning_effort,
+            maxTokens: built.body.max_tokens,
+        });
         if (!options.length) {
             showStatus('No chat messages were returned. Try again.', true);
             return;
