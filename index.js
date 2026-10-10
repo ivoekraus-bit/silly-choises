@@ -16,7 +16,7 @@ const SKIP_SNAPSHOT_TYPES = new Set(['quiet', 'impersonate']);
 const MIN_COUNT = 4;
 const MAX_COUNT = 8;
 const MIN_TOKENS = 32;
-const MAX_TOKENS = 4096;
+const MAX_TOKENS = 8192;
 
 const LEGACY_INSTRUCTION = 'Suggest {{count}} distinct replies {{user}} could send next, in character. Output only a numbered list, one reply per line, no quotes or commentary.';
 const INSTRUCTION_VERSION = 2;
