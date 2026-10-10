@@ -18,7 +18,12 @@ const MAX_COUNT = 8;
 const MIN_TOKENS = 32;
 const MAX_TOKENS = 4096;
 
-const DEFAULT_INSTRUCTION = 'Suggest {{count}} distinct replies {{user}} could send next, in character. Output only a numbered list, one reply per line, no quotes or commentary.';
+const LEGACY_INSTRUCTION = 'Suggest {{count}} distinct replies {{user}} could send next, in character. Output only a numbered list, one reply per line, no quotes or commentary.';
+const INSTRUCTION_VERSION = 2;
+const DEFAULT_INSTRUCTION = '[OOC. Not a story turn. Do not continue as {{char}}.]\n'
+    + 'Write exactly {{count}} next chat messages for {{user}}, one per line, numbered "1." "2." and so on. '
+    + 'Each line must be the complete message {{user}} would type, in the same style as this chat: spoken words and actions only. '
+    + 'Do not analyze the scene. Do not summarize moods, intentions, or state. Do not add headings, labels, or name prefixes.';
 
 const defaultSettings = {
     enabled: true,
@@ -68,8 +73,41 @@ function cleanOption(text) {
     return String(text ?? '').replace(/^["“”']+|["“”']+$/g, '').trim();
 }
 
+const SCENE_NOTE = /^(?:\*\*)?(?:analyze|analysis|context|summary|state|notes?|mood|status|current state)\b/i;
+
+function hasSpokenOrAction(text) {
+    return /["“”*]/.test(text);
+}
+
+function looksLikeStateList(text) {
+    const plain = String(text ?? '').trim();
+    if (!plain || plain.length > 220 || hasSpokenOrAction(plain)) return false;
+    if (!/,/.test(plain)) return false;
+    return !/\b(i|i'm|i’m|im|we|you|he|she|they|is|was|were|am|are|don't|didn't|can't|won't|let's|lets)\b/i.test(plain);
+}
+
 /**
- * Parse a numbered or plain list of reply options.
+ * Scene notes and state summaries are not chat messages.
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function isSceneNote(text) {
+    const raw = String(text ?? '').trim();
+    const plain = raw.replace(/\*\*/g, '').trim();
+    if (!plain) return true;
+    if (SCENE_NOTE.test(plain) || SCENE_NOTE.test(raw)) return true;
+    if (/:\s*$/.test(plain) && plain.length < 80) return true;
+    const labeled = plain.match(/^([^:]{1,48}):\s+(.+)$/);
+    if (labeled && looksLikeStateList(labeled[2])) return true;
+    const boldLabel = raw.match(/^\*\*([^*]{1,48})\*\*\s*:?\s+(.+)$/);
+    if (boldLabel && (looksLikeStateList(boldLabel[2]) || SCENE_NOTE.test(boldLabel[1]))) return true;
+    if (looksLikeStateList(plain) && plain.length < 120) return true;
+    return false;
+}
+
+/**
+ * Parse a numbered list of chat messages. Scene notes are dropped.
+ * Unnumbered lines are kept only when they already look like messages.
  * @param {string} text Model output
  * @param {number} count Maximum options to keep
  * @returns {string[]}
@@ -82,14 +120,20 @@ export function parseOptions(text, count) {
     const lines = cleaned.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
     const numbered = [];
     for (const line of lines) {
-        const match = line.match(/^(?:\d{1,2}[.)\]:-]|[-*•])\s+(.+)$/);
+        const match = line.match(/^(?:\d{1,2}[.)\]:-])\s+(.+)$/);
         if (match) numbered.push(cleanOption(match[1]));
     }
 
-    const numberedUsable = numbered.filter(Boolean);
-    const source = numberedUsable.length >= 2 ? numberedUsable : lines.map(cleanOption).filter(Boolean);
+    // A Claude prefill of "1." is not part of the completion, so the first line may be bare.
+    if (numbered.length && lines[0] && !/^\d{1,2}[.)\]:-]/.test(lines[0])) {
+        const first = cleanOption(lines[0]);
+        if (first) numbered.unshift(first);
+    }
+
+    const source = numbered.length ? numbered : lines.map(cleanOption);
     const unique = [];
     for (const option of source) {
+        if (!option || isSceneNote(option)) continue;
         if (unique.includes(option)) continue;
         unique.push(option);
         if (unique.length >= wanted) break;
@@ -127,10 +171,17 @@ export function extractCompletionText(data) {
         || textFromParts(choice?.content);
     if (fromChoice.trim()) return fromChoice;
 
-    const reasoning = message?.reasoning_content || message?.reasoning || data.reasoning || '';
-    if (typeof reasoning === 'string' && reasoning.trim()) return reasoning;
-
+    // Reasoning is a scratchpad ("Analyze the current state"), not a reply.
+    // Callers that want to salvage a numbered list from it can read it separately.
     return textFromParts(data.message?.content) || textFromParts(data.text) || '';
+}
+
+export function extractReasoningText(data) {
+    if (!data || typeof data !== 'object') return '';
+    const choice = Array.isArray(data.choices) ? data.choices[0] : null;
+    const message = choice?.message;
+    const reasoning = message?.reasoning_content || message?.reasoning || data.reasoning || '';
+    return typeof reasoning === 'string' ? reasoning : '';
 }
 
 function contentKey(message) {
@@ -219,8 +270,8 @@ function buildRequest(snap, assistant, instruction, maxTokens) {
     const body = cloneJson(snap.body);
     const built = buildOptionsMessages(body.messages, { type: snap.type }, assistant, instruction);
     body.messages = built.messages;
-    // Prefill is not part of the stable message prefix. Leaving it on would
-    // continue the character reply after the instruction.
+    // Drop the character prefill. A list prefill is added below for Claude only,
+    // after the instruction, so it is not part of the stable prefix.
     delete body.assistant_prefill;
     delete body.logprobs;
     delete body.top_logprobs;
@@ -233,6 +284,17 @@ function buildRequest(snap, assistant, instruction, maxTokens) {
     body.max_tokens = maxTokens;
     body.stream = false;
     if (typeof body.n === 'number') body.n = 1;
+    // Generation parameters, not prompt bytes. High reasoning effort spends the
+    // reply budget on state notes, and a very hot RP temperature ignores the list format.
+    if (typeof body.reasoning_effort === 'string' && /^(medium|high|max|xhigh)$/i.test(body.reasoning_effort)) {
+        body.reasoning_effort = 'low';
+    }
+    if (typeof body.temperature === 'number' && body.temperature > 1) {
+        body.temperature = 1;
+    }
+    if (body.chat_completion_source === 'claude') {
+        body.assistant_prefill = '1.';
+    }
     return { body, replacedTail: built.replacedTail };
 }
 
@@ -281,6 +343,12 @@ function getSettings() {
     }
     settings.count = clampCount(settings.count);
     settings.maxTokens = clampTokens(settings.maxTokens);
+    if (settings.instructionVersion !== INSTRUCTION_VERSION) {
+        const current = typeof settings.instruction === 'string' ? settings.instruction.trim() : '';
+        if (!current || current === LEGACY_INSTRUCTION) settings.instruction = DEFAULT_INSTRUCTION;
+        settings.instructionVersion = INSTRUCTION_VERSION;
+        ctx.saveSettingsDebounced();
+    }
     if (typeof settings.instruction !== 'string' || !settings.instruction.trim()) {
         settings.instruction = DEFAULT_INSTRUCTION;
     }
@@ -668,9 +736,14 @@ async function generateSuggestions({ force = false } = {}) {
         logReplay(snap, built);
         const data = await postCompletion(built.body, controller.signal);
         if (myId !== requestId || epoch !== uiEpoch || dismissed) return;
-        const options = parseOptions(extractCompletionText(data), settings.count);
+        const content = extractCompletionText(data);
+        let options = parseOptions(content, settings.count);
+        if (options.length < 2) {
+            const fromReasoning = parseOptions(extractReasoningText(data), settings.count);
+            if (fromReasoning.length > options.length) options = fromReasoning;
+        }
         if (!options.length) {
-            showStatus('No suggestions returned.', true);
+            showStatus('No chat messages were returned. Try again.', true);
             return;
         }
         renderedFor = key;
